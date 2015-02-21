@@ -1,0 +1,156 @@
+---
+title: "Barbell Lifts Recognition"
+output: html_document
+---
+
+## Synopsis
+Development of inexpencive yet functional personal activity devices allows
+collecting a large amount of data, which can be used for determining types of
+the activity performed by a person in real-time. The activities could also be
+further classified for determining, if a certain activity is performed
+correctly or not.
+
+The *Random Forests* method, even with a small number of trees produces stable predicting models for these activities, which can be used for introducing new
+real-time feedback functionality for assesssing exercises.
+
+## Data Processing
+The data being analyzed is a part of the **Human Activity Recognition** project
+by [Groupware@LES][1], which analyzes the patterns in the data recorded by 
+personal activity devices (such as *Jawbone Up*, *Nike FuelBand*, and *Fitbit*).
+
+This data set, particularly, contains the activity information recorded while lifting a barbell. A key requirement for effective training to have a positive
+impact on cardio-respiratory fitness is a *proper technique*. At the same time, incorrect technique has been identified as the main cause of training injuries.
+The presence of a trainer may not always be possible due to cost and
+availability, thus using ambient or on-body sensors may be a promising approach
+to assessing exercises and to providing feedback on the quality of execution.
+
+In this project, 6 participants were asked to perform barbell lifts *correctly*
+and *incorrecly* in 5 different ways, classified with letters A, B, C, D, and E.
+The participants were wearing accelerometers on the belt, forearm, arm, and
+dumbell itself.
+
+### Reading the Data
+```{r readfile, cache=TRUE}
+TRAIN_URL <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
+TEST_URL <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'
+TRAIN_FILENAME <- 'pml-training.csv'
+TEST_FILENAME <- 'pml-testing.csv'
+
+if (!file.exists(TRAIN_FILENAME)) {
+    download.file(TRAIN_URL, TRAIN_FILENAME, method='curl')
+}
+if (!file.exists(TEST_FILENAME)) {
+    download.file(TEST_URL, TEST_FILENAME, method='curl')
+}
+
+train.data <- read.csv(TRAIN_FILENAME)
+test.data <- read.csv(TEST_FILENAME)
+
+# load the caret library for learning functions
+library(caret)
+```
+The training data set contains `r nrow(train.data)` observations of 
+`r ncol(train.data)` variables. The testing data set contains 
+`r nrow(test.data)` observations, which should be classified into one of 5
+different ways oif performing barbell lifts using the model developed over the 
+training data set.
+
+### Predictors
+The data set contains `r ncol(train.data)` variables, but not all of them will
+be used as predictors for building the model. Let's find the ones, which may
+have prominent effect on the classification.
+
+At first, let's exclude the variables, which are not defined in the testing 
+data set, so they could not be used in the model to predict an outcome.
+```{r predictors1, cache=TRUE}
+vars <- names(which(sapply( test.data, function(x) !all(is.na(x)))))
+```
+
+We are also not interested in any meta variables, e.g. timestamps, participant 
+names, etc.
+```{r predictors2, cache=TRUE}
+meta.vars <- c('X', 'user_name', 'new_window', 'num_window', 'problem_id',
+               'raw_timestamp_part_1', 'raw_timestamp_part_2', 'cvtd_timestamp')
+```
+
+We will also exclude the variables with zero or near zero variance, because they
+do not give strong evidence towards a certain classification outcome.
+
+```{r predictors3, cache=TRUE}
+nzv.vars <- names(train.data)[nearZeroVar(train.data)]
+
+vars <- vars[! vars %in% c(meta.vars, nzv.vars)]; vars
+```
+
+### Exploratory Analysis of the Predictors
+The exploratory analysis may be used for further reducing the number of the predictors to be used for building the model.
+```{r predictors4, cache=TRUE}
+featurePlot(x=train.data[, vars], y= train.data$classe, 'strip', jitter=TRUE)
+```
+
+Feature plots show little variance between the outcomes for gyroscope sensor 
+data, so these variables will not be used as predictors.
+
+```{r predictors5, cache=TRUE}
+predictors <- c('yaw_belt', 'yaw_arm',
+          vars[c(grep('^magnet', vars), grep('^accel', vars))])
+```
+
+## Building a Model
+Since we are mainly interested in the final classification, rather then in the interpretability of the model, a decision tree learning seems to be an optimum
+choice. Particularly, the *Random Forests* method will be used.
+
+A typical tree learning algorithm uses *bagging* (*bootstrap aggregating*),
+which can reduce the affect of the characteristic noise by averaging several 
+trees built on subsets of the training data, thus, reducing the variance of the
+model.
+
+The *Random Forests* method additionally introduces *feature bagging*, which 
+randomly chooses a subset of predictors, at each split, so that different trees
+used in bootstraps do not share the same set of featers used and, therefore,
+are less correlated, reducing possible overfitting.
+
+Before *growing* each tree in the forest, a training subset of the data is
+sampled with replacement, leaving about one-third out. This *oob* (out-of-bag)
+data is used to get an unbiased estimate of the classification error.
+
+```{r model, cache=TRUE}
+library(caret); set.seed(23413)
+
+# create a formula out of predictors
+f <- as.formula(paste('classe ~ ', paste(predictors, collapse='+')))
+
+# train Random Forests models
+fit1 <- train(f, data=train.data, method='rf', ntree=1); fit1$finalModel$confustion
+fit5 <- train(f, data=train.data, method='rf', ntree=5); fit5$finalModel$confustion
+fit10 <- train(f, data=train.data, method='rf', ntree=10); fit10$finalModel$confustion
+fit20 <- train(f, data=train.data, method='rf', ntree=20); fit20$finalModel$confustion
+```
+
+Even with the small number of *trees* in the *forest* used for bagging, the 
+error rate is rather small. The trivial forest of only one tree yields 
+`r round(fit1$finalModel$err.rate[1,1]*100,2)`% OOB error rate. The 5-tree
+models yields `r round(fit5$finalModel$err.rate[1,1]*100,2)`% OOB error rate.
+The 10 and 20-tree models yield `r round(fit10$finalModel$err.rate[1,1]*100,2)`%
+and `r round(fit20$finalModel$err.rate[1,1]*100,2)`% OBB error rates
+accordingly.
+
+### Predicting the Testing Outcomes
+We use the constructed Random Forests models for predicing the classification
+outcome of the *testing* data set.
+
+```{r predict, cache=TRUE}
+predict(fit1, newdata=test.data[])
+predict(fit5, newdata=test.data[])
+predict(fit10, newdata=test.data[])
+predict(fit20, newdata=test.data[])
+```
+
+Models with 5, 10, and 20 trees yield the same results, while the model with 
+only one tree differs in two predicted values. These outcomes (from 5, 10 and
+20-tree models) have been successfully evaluated in the submission section of 
+the assignment.
+
+[1]: http://groupware.les.inf.puc-rio.br/har
+[2]: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+[3]: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
