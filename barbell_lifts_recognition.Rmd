@@ -3,6 +3,14 @@ title: "Barbell Lifts Recognition"
 output: html_document
 ---
 
+```{r libs, echo=FALSE,results='hide'}
+# load the libraries for learning functions
+suppressMessages({
+    library(ggplot2); library(lattice)
+    library(caret); library(randomForest)
+})
+```
+
 ## Synopsis
 Development of inexpencive yet functional personal activity devices allows
 collecting a large amount of data, which can be used for determining types of
@@ -30,6 +38,11 @@ The participants were wearing accelerometers on the belt, forearm, arm, and
 dumbell itself.
 
 ### Reading the Data
+The data sets are available on the course project site in two files:
+the [first one][2] containing the training observation already classified;
+the [second one][3] is the testing data, which should be classified with the 
+constructed model.
+
 ```{r readfile, cache=TRUE}
 TRAIN_URL <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
 TEST_URL <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'
@@ -45,10 +58,8 @@ if (!file.exists(TEST_FILENAME)) {
 
 train.data <- read.csv(TRAIN_FILENAME)
 test.data <- read.csv(TEST_FILENAME)
-
-# load the caret library for learning functions
-library(caret)
 ```
+
 The training data set contains `r nrow(train.data)` observations of 
 `r ncol(train.data)` variables. The testing data set contains 
 `r nrow(test.data)` observations, which should be classified into one of 5
@@ -60,21 +71,21 @@ The data set contains `r ncol(train.data)` variables, but not all of them will
 be used as predictors for building the model. Let's find the ones, which may
 have prominent effect on the classification.
 
-At first, let's exclude the variables, which are not defined in the testing 
-data set, so they could not be used in the model to predict an outcome.
+At first, let's exclude the variables, which are not defined (have all `NA` 
+values) in the testing data set, so they could not be used in the model to 
+predict an outcome.
 ```{r predictors1, cache=TRUE}
 vars <- names(which(sapply( test.data, function(x) !all(is.na(x)))))
 ```
 
-We are also not interested in any meta variables, e.g. timestamps, participant 
+We are also not interested in any *meta* variables, e.g. timestamps, participant 
 names, etc.
 ```{r predictors2, cache=TRUE}
 meta.vars <- c('X', 'user_name', 'new_window', 'num_window', 'problem_id',
                'raw_timestamp_part_1', 'raw_timestamp_part_2', 'cvtd_timestamp')
 ```
 
-We will also exclude the variables with zero or near zero variance, because they
-do not give strong evidence towards a certain classification outcome.
+We will also exclude the variables with *zero* or *near zero variance*, because they do not give strong evidence towards a certain classification outcome.
 
 ```{r predictors3, cache=TRUE}
 nzv.vars <- names(train.data)[nearZeroVar(train.data)]
@@ -84,8 +95,15 @@ vars <- vars[! vars %in% c(meta.vars, nzv.vars)]; vars
 
 ### Exploratory Analysis of the Predictors
 The exploratory analysis may be used for further reducing the number of the predictors to be used for building the model.
-```{r predictors4, cache=TRUE}
-featurePlot(x=train.data[, vars], y= train.data$classe, 'strip', jitter=TRUE)
+```{r predictors4, cache=TRUE,fig.width=8}
+featurePlot(x=train.data[, vars[grep('^(magnet|yaw)', vars)]],
+            y= train.data$classe, 'strip', jitter=TRUE)
+
+featurePlot(x=train.data[, vars[grep('^(gyros|roll)', vars)]],
+            y= train.data$classe, 'strip', jitter=TRUE)
+
+featurePlot(x=train.data[, vars[grep('^(accel|pitch)', vars)]],
+            y= train.data$classe, 'strip', jitter=TRUE)
 ```
 
 Feature plots show little variance between the outcomes for gyroscope sensor 
@@ -115,24 +133,25 @@ sampled with replacement, leaving about one-third out. This *oob* (out-of-bag)
 data is used to get an unbiased estimate of the classification error.
 
 ```{r model, cache=TRUE}
-library(caret); set.seed(23413)
+# set random seed for reproducibility
+set.seed(23413)
 
 # create a formula out of predictors
 f <- as.formula(paste('classe ~ ', paste(predictors, collapse='+')))
 
 # train Random Forests models
-fit1 <- train(f, data=train.data, method='rf', ntree=1); fit1$finalModel$confustion
-fit5 <- train(f, data=train.data, method='rf', ntree=5); fit5$finalModel$confustion
-fit10 <- train(f, data=train.data, method='rf', ntree=10); fit10$finalModel$confustion
-fit20 <- train(f, data=train.data, method='rf', ntree=20); fit20$finalModel$confustion
+fit1 <- train(f, data=train.data, method='rf', ntree=1); fit1$finalModel$confusion
+fit5 <- train(f, data=train.data, method='rf', ntree=5); fit5$finalModel$confusion
+fit10 <- train(f, data=train.data, method='rf', ntree=10); fit10$finalModel$confusion
+fit20 <- train(f, data=train.data, method='rf', ntree=20); fit20$finalModel$confusion
 ```
 
 Even with the small number of *trees* in the *forest* used for bagging, the 
 error rate is rather small. The trivial forest of only one tree yields 
 `r round(fit1$finalModel$err.rate[1,1]*100,2)`% OOB error rate. The 5-tree
-models yields `r round(fit5$finalModel$err.rate[1,1]*100,2)`% OOB error rate.
-The 10 and 20-tree models yield `r round(fit10$finalModel$err.rate[1,1]*100,2)`%
-and `r round(fit20$finalModel$err.rate[1,1]*100,2)`% OBB error rates
+models yields `r round(fit5$finalModel$err.rate[5,1]*100,2)`% OOB error rate.
+The 10 and 20-tree models yield `r round(fit10$finalModel$err.rate[10,1]*100,2)`%
+and `r round(fit20$finalModel$err.rate[20,1]*100,2)`% OBB error rates
 accordingly.
 
 ### Predicting the Testing Outcomes
